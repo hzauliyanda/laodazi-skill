@@ -49,6 +49,12 @@ function convertMarkdownToStyledHtml(markdown: string): string {
     html = '<p style="line-height: 1.8; margin: 1em 0;">' + html + '</p>';
   }
 
+  // Clean up empty paragraphs and consecutive <br> tags
+  html = html.replace(/<p style="line-height: 1\.8; margin: 1em 0;"><\/p>/g, '');
+  html = html.replace(/<p[^>]*>\s*<\/p>/g, '');
+  html = html.replace(/(<br\s*\/?>){3,}/g, '<br><br>'); // Limit consecutive breaks to 2
+  html = html.replace(/<\/p><p[^>]*><br>/g, '</p><p style="line-height: 1.8; margin: 1em 0;">'); // Remove <br> at start of p
+
   return html;
 }
 
