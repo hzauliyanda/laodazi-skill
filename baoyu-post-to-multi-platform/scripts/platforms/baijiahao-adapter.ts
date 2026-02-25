@@ -189,30 +189,12 @@ export class BaijiahaoAdapter extends BasePlatformAdapter {
       await this.clickWithRetry(iframeSelector);
       await sleep(1000);
 
-      // Read the styled HTML content
-      const fs = require('node:fs');
-      const styledContent = fs.readFileSync(markdown.htmlPath, 'utf-8');
-
-      // Insert HTML content into the iframe editor
-      console.log('[baijiahao] Inserting styled HTML content...');
-
       // Read the HTML content
       let htmlContent = fs.readFileSync(markdown.htmlPath, 'utf-8');
 
-      // Replace image placeholders with simple text markers (keep placeholders in content)
-      console.log('[baijiahao] Replacing image placeholders with text markers...');
-      for (let i = 0; i < markdown.contentImages.length; i++) {
-        const image = markdown.contentImages[i];
-        const marker = `<p style="background:#f0f0f0;padding:15px;margin:15px 0;border-left:4px solid #2196F3;color:#333;">
-  <strong>[图片 ${i + 1}]</strong>
-</p>`;
-        htmlContent = htmlContent.replace(image.placeholder, marker);
-        console.log(`[baijiahao]   - ${image.placeholder} -> [图片 ${i + 1}] marker`);
-      }
-
       console.log('[baijiahao] HTML content length:', htmlContent.length);
 
-      // Insert the content first
+      // First insert the text content with placeholders
       await evaluate(
         this.session,
         `
@@ -220,7 +202,6 @@ export class BaijiahaoAdapter extends BasePlatformAdapter {
         if (iframe && iframe.contentDocument) {
           const iframeBody = iframe.contentDocument.body;
           iframeBody.innerHTML = ${JSON.stringify(htmlContent)};
-          // Trigger change event
           iframeBody.dispatchEvent(new Event('input', { bubbles: true }));
           iframeBody.dispatchEvent(new Event('change', { bubbles: true }));
         }
@@ -228,57 +209,184 @@ export class BaijiahaoAdapter extends BasePlatformAdapter {
       );
       await sleep(2000);
 
-      console.log('[baijiahao] ✓ Content inserted');
+      console.log('[baijiahao] ✓ Content inserted with placeholders');
 
-      // Now insert images at the beginning after content is loaded
-      console.log('[baijiahao] Inserting images at the beginning...');
-
+      // Now upload each image by finding its placeholder and using the upload button
       for (let i = 0; i < markdown.contentImages.length; i++) {
         const image = markdown.contentImages[i];
-        const imgUrl = image.originalPath;
-        const imgTag = `<img src="${imgUrl}" style="max-width:100%;height:auto;display:block;margin:10px 0;">`;
+        const placeholder = image.placeholder;
+        const localPath = image.localPath;
 
-        const insertResult = await evaluate(
+        console.log(`[baijiahao] Processing image ${i + 1}: ${placeholder}`);
+
+        // Use window.find() to locate and select the placeholder
+        const placeholderFound = await evaluate<boolean>(
           this.session,
           `
-            const iframe = document.querySelector('iframe#ueditor_0');
-            if (iframe && iframe.contentDocument) {
-              const iframeBody = iframe.contentDocument.body;
-              // Insert image at the beginning
-              iframeBody.insertAdjacentHTML('afterbegin', ${JSON.stringify(imgTag)});
-              return 'inserted';
-            }
-            return 'no iframe';
+            (function() {
+              try {
+                const iframe = document.querySelector('iframe#ueditor_0');
+                if (!iframe || !iframe.contentDocument) return false;
+                if (!iframe.contentWindow) return false;
+
+                const iframeWindow = iframe.contentWindow;
+                const placeholder = ${JSON.stringify(placeholder)};
+
+                // Focus iframe first
+                iframe.focus();
+
+                // Use window.find() to locate the placeholder text
+                const findResult = iframeWindow.find(placeholder, false, false, false, false, false, false);
+
+                if (!findResult) {
+                  console.log('[debug] Placeholder not found by find()');
+                  return false;
+                }
+
+                console.log('[debug] Placeholder found and selected by find()');
+                return true;
+              } catch (e) {
+                console.log('[debug] Error with find():', e.message);
+                return false;
+              }
+            })()
           `,
         );
 
-        console.log(`[baijiahao]   - Inserted image ${i + 1}: ${imgUrl}`);
-        console.log(`[baijiahao]     Result: ${insertResult}`);
+        if (!placeholderFound) {
+          console.log(`[baijiahao]   - Placeholder ${placeholder} not found, skipping`);
+          continue;
+        }
+
+        console.log(`[baijiahao]   - Placeholder selected`);
         await sleep(500);
+
+        // Click the image upload button
+        console.log('[baijiahao]   - Clicking image upload button...');
+        const buttonClicked = await evaluate<boolean>(
+          this.session,
+          `
+            (function() {
+              try {
+                const xpath = '//*[@data-function="insertimage"]';
+                const result = document.evaluate(xpath, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+                const button = result.singleNodeValue;
+                if (button) {
+                  button.click();
+                  console.log('[debug] Upload button clicked');
+                  return true;
+                }
+                console.log('[debug] Upload button not found');
+                return false;
+              } catch (e) {
+                console.log('[debug] Error clicking button:', e.message);
+                return false;
+              }
+            })()
+          `,
+        );
+
+        if (!buttonClicked) {
+          console.log(`[baijiahao]   - Could not click upload button, skipping`);
+          continue;
+        }
+
+        await sleep(2000);
+
+        // Set the file input
+        console.log('[baijiahao]   - Setting file input...');
+        try {
+          const docResult = await this.session.cdp.send(
+            'DOM.getDocument',
+            {},
+            { sessionId: this.session.sessionId }
+          );
+
+          type DocResult = { root: { nodeId: number } };
+          const docData = (docResult as DocResult);
+          const rootNodeId = docData.root.nodeId;
+
+          const nodeIdResult = await this.session.cdp.send(
+            'DOM.querySelector',
+            {
+              nodeId: rootNodeId,
+              selector: 'input[name="media"]'
+            },
+            { sessionId: this.session.sessionId }
+          );
+
+          type NodeResult = { nodeId: number };
+          const nodeData = (nodeIdResult as NodeResult);
+          const fileId = nodeData.nodeId;
+
+          await setFileInput(this.session, fileId, [localPath]);
+          console.log(`[baijiahao]   - File set: ${localPath}`);
+          await sleep(2000);
+
+          // Click confirm button in the image upload modal
+          // Look for the confirm button with class cheetah-btn-primary in the modal
+          const confirmed = await evaluate<boolean>(
+            this.session,
+            `
+              (function() {
+                // First try to find the confirm button in the image upload modal
+                const modal = document.querySelector('.cheetah-modal-footer');
+                if (modal) {
+                  const confirmBtn = modal.querySelector('.cheetah-btn-primary');
+                  if (confirmBtn && confirmBtn.textContent.includes('确认')) {
+                    confirmBtn.click();
+                    console.log('[debug] Clicked modal confirm button');
+                    return true;
+                  }
+                }
+
+                // Fallback: find any visible button with text "确认" in cheetah-modal
+                const modals = document.querySelectorAll('.cheetah-modal-wrap, .cheetah-modal');
+                for (const modal of modals) {
+                  const style = window.getComputedStyle(modal);
+                  if (style.display !== 'none') {
+                    const buttons = modal.querySelectorAll('button');
+                    for (const btn of buttons) {
+                      const btnStyle = window.getComputedStyle(btn);
+                      const text = btn.textContent || '';
+                      if (btnStyle.display !== 'none' && text.includes('确认')) {
+                        btn.click();
+                        console.log('[debug] Clicked confirm button in modal');
+                        return true;
+                      }
+                    }
+                  }
+                }
+
+                // Last resort: find any button with "确认"
+                const allButtons = document.querySelectorAll('button');
+                for (const btn of allButtons) {
+                  const style = window.getComputedStyle(btn);
+                  const text = btn.textContent || '';
+                  if (style.display !== 'none' && text.includes('确认')) {
+                    btn.click();
+                    console.log('[debug] Clicked confirm button');
+                    return true;
+                  }
+                }
+                return false;
+              })()
+          `,
+          );
+
+          if (confirmed) {
+            console.log(`[baijiahao]   - Confirmed`);
+            await sleep(1500);
+          } else {
+            console.log(`[baijiahao]   - No confirm button found`);
+          }
+
+        } catch (e) {
+          console.log(`[baijiahao]   - Upload error: ${e}`);
+        }
       }
 
-      // Verify images in the editor
-      const verifyResult = await evaluate(
-        this.session,
-        `
-          const iframe = document.querySelector('iframe#ueditor_0');
-          if (iframe && iframe.contentDocument) {
-            const iframeBody = iframe.contentDocument.body;
-            const imgs = iframeBody.querySelectorAll('img');
-            return {
-              count: imgs.length,
-              sources: Array.from(imgs).map(img => ({
-                src: img.src,
-                loaded: img.complete && img.naturalHeight > 0
-              }))
-            };
-          }
-          return { error: 'no iframe' };
-        `,
-      );
-
-      console.log(`[baijiahao] Verification: ${JSON.stringify(verifyResult)}`);
-      console.log(`[baijiahao] ✓ All ${markdown.contentImages.length} images inserted`);
+      console.log('[baijiahao] ✓ Image upload process completed');
 
       // Handle cover image separately if the platform has a dedicated upload area
       if (markdown.coverImage) {
