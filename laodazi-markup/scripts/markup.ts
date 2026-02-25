@@ -260,7 +260,7 @@ async function markupMarkdownFile(filePath: string, config: MarkupConfig): Promi
 
   console.log('\n字符统计:');
   console.log('  - 中文字符:', chineseChars);
-  console.log('  - 中文引号 (" "):', chineseQuotes);
+  console.log('  - 中文引号 (“”):', chineseQuotes);
   console.log('  - 英文引号 ("):', englishQuotes);
   console.log('  - 中文问号 (？):', chineseQuestion);
   console.log('  - 中文逗/句号 (，。):', chineseComma);
