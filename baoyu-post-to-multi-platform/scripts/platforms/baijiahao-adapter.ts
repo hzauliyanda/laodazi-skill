@@ -1,5 +1,5 @@
 import { BasePlatformAdapter } from './base-adapter.js';
-import { clickElement, typeText, sleep, waitForElement, evaluate } from '../shared/cdp.js';
+import { clickElement, typeText, sleep, waitForElement, evaluate, getNodeId, setFileInput } from '../shared/cdp.js';
 import type { ParsedMarkdown, PublishOptions, PlatformPublishResult } from '../shared/types.js';
 import fs from 'node:fs';
 
@@ -7,6 +7,7 @@ import fs from 'node:fs';
  * Baidu Baijiahao (百家号) adapter
  * URL: https://baijiahao.baidu.com/builder/rc/home
  */
+
 export class BaijiahaoAdapter extends BasePlatformAdapter {
   name = 'baijiahao' as const;
   publishUrl = 'https://baijiahao.baidu.com/builder/rc/home';
@@ -196,9 +197,22 @@ export class BaijiahaoAdapter extends BasePlatformAdapter {
       console.log('[baijiahao] Inserting styled HTML content...');
 
       // Read the HTML content
-      const htmlContent = fs.readFileSync(markdown.htmlPath, 'utf-8');
+      let htmlContent = fs.readFileSync(markdown.htmlPath, 'utf-8');
 
-      // Use a more reliable method to insert HTML - escape special characters properly
+      // Replace image placeholders with simple text markers (keep placeholders in content)
+      console.log('[baijiahao] Replacing image placeholders with text markers...');
+      for (let i = 0; i < markdown.contentImages.length; i++) {
+        const image = markdown.contentImages[i];
+        const marker = `<p style="background:#f0f0f0;padding:15px;margin:15px 0;border-left:4px solid #2196F3;color:#333;">
+  <strong>[图片 ${i + 1}]</strong>
+</p>`;
+        htmlContent = htmlContent.replace(image.placeholder, marker);
+        console.log(`[baijiahao]   - ${image.placeholder} -> [图片 ${i + 1}] marker`);
+      }
+
+      console.log('[baijiahao] HTML content length:', htmlContent.length);
+
+      // Insert the content first
       await evaluate(
         this.session,
         `
@@ -214,39 +228,57 @@ export class BaijiahaoAdapter extends BasePlatformAdapter {
       );
       await sleep(2000);
 
-      // Now insert images by finding and replacing placeholders with img tags
-      console.log('[baijiahao] Inserting images...');
+      console.log('[baijiahao] ✓ Content inserted');
 
-      for (const image of markdown.contentImages) {
-        console.log(`[baijiahao] Processing image: ${image.placeholder}`);
+      // Now insert images at the beginning after content is loaded
+      console.log('[baijiahao] Inserting images at the beginning...');
 
-        const replaced = await evaluate<boolean>(
+      for (let i = 0; i < markdown.contentImages.length; i++) {
+        const image = markdown.contentImages[i];
+        const imgUrl = image.originalPath;
+        const imgTag = `<img src="${imgUrl}" style="max-width:100%;height:auto;display:block;margin:10px 0;">`;
+
+        const insertResult = await evaluate(
           this.session,
           `
-          const iframe = document.querySelector('iframe#ueditor_0');
-          if (!iframe || !iframe.contentDocument) return false;
-
-          const iframeBody = iframe.contentDocument.body;
-          const placeholder = ${JSON.stringify(image.placeholder)};
-          const imgTag = '<img src="file://${image.localPath}" style="max-width:100%;height:auto;">';
-
-          const originalHTML = iframeBody.innerHTML;
-
-          if (originalHTML.includes(placeholder)) {
-            iframeBody.innerHTML = originalHTML.replace(placeholder, imgTag);
-            return true;
-          }
-          return false;
-        `,
+            const iframe = document.querySelector('iframe#ueditor_0');
+            if (iframe && iframe.contentDocument) {
+              const iframeBody = iframe.contentDocument.body;
+              // Insert image at the beginning
+              iframeBody.insertAdjacentHTML('afterbegin', ${JSON.stringify(imgTag)});
+              return 'inserted';
+            }
+            return 'no iframe';
+          `,
         );
 
-        if (replaced) {
-          console.log(`[baijiahao] ✓ Inserted image: ${image.placeholder}`);
-          await sleep(500);
-        } else {
-          console.log(`[baijiahao] ⚠ Could not find placeholder: ${image.placeholder}`);
-        }
+        console.log(`[baijiahao]   - Inserted image ${i + 1}: ${imgUrl}`);
+        console.log(`[baijiahao]     Result: ${insertResult}`);
+        await sleep(500);
       }
+
+      // Verify images in the editor
+      const verifyResult = await evaluate(
+        this.session,
+        `
+          const iframe = document.querySelector('iframe#ueditor_0');
+          if (iframe && iframe.contentDocument) {
+            const iframeBody = iframe.contentDocument.body;
+            const imgs = iframeBody.querySelectorAll('img');
+            return {
+              count: imgs.length,
+              sources: Array.from(imgs).map(img => ({
+                src: img.src,
+                loaded: img.complete && img.naturalHeight > 0
+              }))
+            };
+          }
+          return { error: 'no iframe' };
+        `,
+      );
+
+      console.log(`[baijiahao] Verification: ${JSON.stringify(verifyResult)}`);
+      console.log(`[baijiahao] ✓ All ${markdown.contentImages.length} images inserted`);
 
       // Handle cover image separately if the platform has a dedicated upload area
       if (markdown.coverImage) {

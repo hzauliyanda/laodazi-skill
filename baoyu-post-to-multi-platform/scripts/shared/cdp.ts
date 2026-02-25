@@ -265,6 +265,19 @@ export async function pasteFromClipboard(session: ChromeSession): Promise<void> 
   await session.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'v', code: 'KeyV', modifiers, windowsVirtualKeyCode: 86 }, { sessionId: session.sessionId });
 }
 
+export async function setFileInput(session: ChromeSession, nodeId: number, filePaths: string[]): Promise<void> {
+  await session.cdp.send('DOM.setFileInputFiles', { nodeId, files: filePaths }, { sessionId: session.sessionId });
+}
+
+export async function getNodeId(session: ChromeSession, selector: string): Promise<number> {
+  const result = await session.cdp.send<{ result: { nodeId: number } }>('DOM.querySelector', {
+    nodeId: 1, // Start from root
+    selector: selector
+  }, { sessionId: session.sessionId });
+
+  return result.result.nodeId;
+}
+
 export async function evaluate<T = unknown>(session: ChromeSession, expression: string): Promise<T> {
   const result = await session.cdp.send<{ result: { value: T } }>('Runtime.evaluate', {
     expression,
