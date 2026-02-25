@@ -18,6 +18,7 @@ export interface ImageInfo {
   placeholder: string;
   localPath: string;
   originalPath: string;
+  position?: number;
 }
 
 export interface ParsedMarkdown {

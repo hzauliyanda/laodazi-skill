@@ -7,6 +7,51 @@ import https from 'node:https';
 import http from 'node:http';
 import type { Frontmatter, ImageInfo, ParsedMarkdown } from './types.js';
 
+/**
+ * Convert Markdown to styled HTML with rich formatting
+ * Keeps image placeholders as text nodes for later replacement
+ */
+function convertMarkdownToStyledHtml(markdown: string): string {
+  let html = markdown;
+
+  // Handle headings (h1-h6)
+  html = html.replace(/^######\s+(.+)$/gm, '<h6 style="font-size: 1em; font-weight: bold; margin: 1em 0;">$1</h6>');
+  html = html.replace(/^#####\s+(.+)$/gm, '<h5 style="font-size: 1.1em; font-weight: bold; margin: 1em 0;">$1</h5>');
+  html = html.replace(/^####\s+(.+)$/gm, '<h4 style="font-size: 1.2em; font-weight: bold; margin: 1em 0;">$1</h4>');
+  html = html.replace(/^###\s+(.+)$/gm, '<h3 style="font-size: 1.3em; font-weight: bold; margin: 1.2em 0 0.8em 0;">$1</h3>');
+  html = html.replace(/^##\s+(.+)$/gm, '<h2 style="font-size: 1.4em; font-weight: bold; margin: 1.2em 0 0.8em 0;">$1</h2>');
+  html = html.replace(/^#\s+(.+)$/gm, '<h1 style="font-size: 1.6em; font-weight: bold; margin: 1.5em 0 1em 0;">$1</h1>');
+
+  // Handle blockquotes - convert to styled div
+  html = html.replace(/^>\s+(.+)$/gm, '<div style="border-left: 4px solid #ddd; padding-left: 1em; margin: 1em 0; color: #666;">$1</div>');
+
+  // Handle bold text with color (from the article format)
+  html = html.replace(/\*\*<font\s+style="color:#DF2A3F;([^"]+)">([^<]+)<\/font>\*\*/g, '<strong style="color: #DF2A3F; $1">$2</strong>');
+  html = html.replace(/<font\s+style="color:#DF2A3F;([^"]+)">([^<]+)<\/font>/g, '<span style="color: #DF2A3F; $1">$2</span>');
+  html = html.replace(/<font\s+style="([^"]+)">([^<]*)<\/font>/g, '<span style="$1">$2</span>');
+
+  // Handle bold and italic
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+
+  // Handle inline code
+  html = html.replace(/`([^`]+)`/g, '<code style="background-color: #f4f4f4; padding: 2px 4px; border-radius: 3px; font-family: monospace;">$1</code>');
+
+  // Handle horizontal rules
+  html = html.replace(/^---$/gm, '<hr style="border: none; border-top: 1px solid #ddd; margin: 2em 0;">');
+
+  // Handle line breaks - use paragraph breaks
+  html = html.replace(/\n\n/g, '</p><p style="line-height: 1.8; margin: 1em 0;">');
+  html = html.replace(/\n/g, '<br>');
+
+  // Wrap in p tag if not already wrapped
+  if (!html.startsWith('<')) {
+    html = '<p style="line-height: 1.8; margin: 1em 0;">' + html + '</p>';
+  }
+
+  return html;
+}
+
 function downloadFile(url: string, destPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
     const protocol = url.startsWith('https') ? https : http;
@@ -189,30 +234,44 @@ export async function parseMarkdownForMultiPlatform(
   }
 
   // Extract images and replace with placeholders
-  const images: Array<{ src: string; placeholder: string }> = [];
+  const images: Array<{ src: string; placeholder: string; position: number }> = [];
   let imageCounter = 0;
 
+  // Replace images with placeholders and track them
   const modifiedBody = body.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, (match, alt, src) => {
     const placeholder = `[[IMAGE_PLACEHOLDER_${++imageCounter}]]`;
-    images.push({ src, placeholder });
+    images.push({
+      src,
+      placeholder,
+      position: 0 // Will be updated if needed
+    });
     return placeholder;
   });
 
-  // Create a simple HTML version (basic conversion for platforms that support HTML)
-  // For now, we'll just keep it as text and let platform adapters handle formatting
-  const htmlContent = modifiedBody
-    .replace(/^#\s+(.+)$/gm, '<h1>$1</h1>')
-    .replace(/^##\s+(.+)$/gm, '<h2>$1</h2>')
-    .replace(/^###\s+(.+)$/gm, '<h3>$1</h3>')
-    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/`([^`]+)`/g, '<code>$1</code>')
-    .replace(/\n\n/g, '</p><p>')
-    .replace(/^/, '<p>')
-    .replace(/$/, '</p>');
+  // Calculate positions if needed
+  if (images.length > 0) {
+    const lines = body.split('\n');
+    let currentPosition = 0;
+    let imgIndex = 0;
+
+    for (const line of lines) {
+      const imageMatch = line.match(/!\[([^\]]*)\]\(([^)]+)\)/);
+      if (imageMatch && imgIndex < images.length) {
+        images[imgIndex].position = currentPosition;
+        imgIndex++;
+      }
+      currentPosition += line.length + 1; // +1 for newline
+    }
+  }
+
+  // Create styled HTML version for rich text editors
+  const styledContent = convertMarkdownToStyledHtml(modifiedBody);
+
+  // Keep placeholders as-is for later replacement (don't replace with plain numbers)
+  const formattedContent = styledContent;
 
   const tempHtmlPath = path.join(tempDir, 'temp-article.html');
-  await writeFile(tempHtmlPath, htmlContent, 'utf-8');
+  await writeFile(tempHtmlPath, formattedContent, 'utf-8');
 
   // Resolve all images
   const contentImages: ImageInfo[] = [];

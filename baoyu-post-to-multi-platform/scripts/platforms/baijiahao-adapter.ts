@@ -1,6 +1,7 @@
 import { BasePlatformAdapter } from './base-adapter.js';
 import { clickElement, typeText, sleep, waitForElement, evaluate } from '../shared/cdp.js';
 import type { ParsedMarkdown, PublishOptions, PlatformPublishResult } from '../shared/types.js';
+import fs from 'node:fs';
 
 /**
  * Baidu Baijiahao (百家号) adapter
@@ -187,54 +188,63 @@ export class BaijiahaoAdapter extends BasePlatformAdapter {
       await this.clickWithRetry(iframeSelector);
       await sleep(1000);
 
-      // Insert content as plain text with images
-      const plainText = this.markdownToPlainText(markdown);
-      await this.insertText(plainText);
+      // Read the styled HTML content
+      const fs = require('node:fs');
+      const styledContent = fs.readFileSync(markdown.htmlPath, 'utf-8');
 
-      // Wait a bit for text to be inserted
+      // Insert HTML content into the iframe editor
+      console.log('[baijiahao] Inserting styled HTML content...');
+
+      // Read the HTML content
+      const htmlContent = fs.readFileSync(markdown.htmlPath, 'utf-8');
+
+      // Use a more reliable method to insert HTML - escape special characters properly
+      await evaluate(
+        this.session,
+        `
+        const iframe = document.querySelector('iframe#ueditor_0');
+        if (iframe && iframe.contentDocument) {
+          const iframeBody = iframe.contentDocument.body;
+          iframeBody.innerHTML = ${JSON.stringify(htmlContent)};
+          // Trigger change event
+          iframeBody.dispatchEvent(new Event('input', { bubbles: true }));
+          iframeBody.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      `,
+      );
       await sleep(2000);
 
-      // Now insert images by finding placeholders and replacing them
+      // Now insert images by finding and replacing placeholders with img tags
+      console.log('[baijiahao] Inserting images...');
+
       for (const image of markdown.contentImages) {
-        // Find the placeholder text in the editor
-        const placeholderExists = await evaluate<boolean>(
+        console.log(`[baijiahao] Processing image: ${image.placeholder}`);
+
+        const replaced = await evaluate<boolean>(
           this.session,
-          `document.body.textContent.includes('${image.placeholder}')`,
+          `
+          const iframe = document.querySelector('iframe#ueditor_0');
+          if (!iframe || !iframe.contentDocument) return false;
+
+          const iframeBody = iframe.contentDocument.body;
+          const placeholder = ${JSON.stringify(image.placeholder)};
+          const imgTag = '<img src="file://${image.localPath}" style="max-width:100%;height:auto;">';
+
+          const originalHTML = iframeBody.innerHTML;
+
+          if (originalHTML.includes(placeholder)) {
+            iframeBody.innerHTML = originalHTML.replace(placeholder, imgTag);
+            return true;
+          }
+          return false;
+        `,
         );
 
-        if (placeholderExists) {
-          // Select the placeholder text
-          await evaluate(
-            this.session,
-            `
-            const selection = window.getSelection();
-            const range = document.createRange();
-            const textNodes = [];
-            const walker = document.createTreeWalker(
-              document.body,
-              NodeFilter.SHOW_TEXT,
-              null
-            );
-            let node;
-            while (node = walker.nextNode()) {
-              if (node.nodeValue && node.nodeValue.includes('${image.placeholder}')) {
-                textNodes.push(node);
-              }
-            }
-            if (textNodes.length > 0) {
-              const textNode = textNodes[0];
-              const text = textNode.nodeValue;
-              const index = text.indexOf('${image.placeholder}');
-              range.setStart(textNode, index);
-              range.setEnd(textNode, index + '${image.placeholder}'.length);
-              selection.removeAllRanges();
-              selection.addRange(range);
-            }
-          `,
-          );
-
+        if (replaced) {
+          console.log(`[baijiahao] ✓ Inserted image: ${image.placeholder}`);
           await sleep(500);
-          await this.insertImage(image.localPath);
+        } else {
+          console.log(`[baijiahao] ⚠ Could not find placeholder: ${image.placeholder}`);
         }
       }
 
