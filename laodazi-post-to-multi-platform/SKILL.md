@@ -1,168 +1,132 @@
-# Multi-Platform Article Publishing
+---
+name: laodazi-post-to-multi-platform
+description: Post article to both Baijiahao (百家号) and WeChat Official Account (微信公众号) in one browser session. Saves as draft on both platforms.
+---
 
-Automatically publish articles from a single Markdown file to multiple Chinese content platforms.
+# Multi-Platform Article Publisher
 
-## Supported Platforms
+一键将 Markdown 文章同时发布到百度百家号和微信公众号，两个平台都会保存为草稿。
 
-| Platform | Status | Notes |
-|----------|--------|-------|
-| **百家号 (Baijiahao)** | ✅ Supported | Baidu's content platform |
-| **头条号 (Toutiao)** | ✅ Supported | ByteDance's content platform |
-| **网易号 (Netease)** | ✅ Supported | NetEase's content platform |
+## 核心功能
 
-> **Note:** 小红书 (Xiaohongshu) is not currently supported.
+- 📝 **一次解析**：自动提取标题、摘要、封面图、正文和图片
+- 🔄 **同一浏览器**：在同一个浏览器会话中完成两个平台的发布
+- 📋 **自动保存草稿**：百家号和公众号都会保存为草稿，可随时编辑
+- 🖼️ **智能图片处理**：自动下载远程图片并上传到各平台
+- 🚀 **顺序发布**：先发布百家号，再发布公众号
 
-## Quick Start
+## 快速开始
 
-### 1. Prepare Your Markdown File
+### 1. 准备文章
 
-Create a Markdown file with frontmatter:
+创建 Markdown 文件（可选 frontmatter）：
 
 ```markdown
 ---
-title: Your Article Title
-cover_image: /path/to/cover-image.jpg
-tags: AI,技术,教程
-author: Your Name
-summary: A brief summary of your article
+title: 赵匡胤究竟是怎样一个人？
+cover_image: /path/to/cover.jpg
+tags: 历史,人物传记
+author: 老达子
+summary: 揭秘历史上真实的赵匡胤
 ---
 
-# Article Content
+# 前言
+很多人提起大宋开国皇帝赵匡胤...
 
-Your article content here...
+![图片描述](./image1.png)
 
-![Image description](./image1.png)
-
-More content...
+更多内容...
 ```
 
-### 2. Login to Platforms (First Time Only)
+### 2. 登录平台（首次使用）
 
-Before publishing, you need to login to each platform:
+首次运行时会自动打开浏览器，请先登录：
+- **百家号**: https://baijiahao.baidu.com/builder/rc/home
+- **公众号**: https://mp.weixin.qq.com/
 
-1. Open Chrome (or your browser)
-2. Visit each platform and login:
-   - 百家号: https://baijiahao.baidu.com
-   - 头条号: https://mp.toutiao.com
-   - 网易号: http://mp.163.com
+登录信息会自动保存，后续无需重复登录。
 
-The skill will use your browser's saved login session.
-
-### 3. Publish
+### 3. 发布文章
 
 ```bash
-# Preview mode (create as draft) - all platforms
-npx -y bun ${SKILL_DIR}/scripts/publishers/publish-all.ts article.md
+# 保存为草稿到两个平台
+/laodazi-post-to-multi-platform article.md
 
-# Submit for publication - all platforms
-npx -y bun ${SKILL_DIR}/scripts/publishers/publish-all.ts article.md --submit
-
-# Publish to specific platforms only
-npx -y bun ${SKILL_DIR}/scripts/publishers/publish-all.ts article.md --platforms baijiahao,toutiao --submit
+# 直接发布
+/laodazi-post-to-multi-platform article.md --submit
 ```
 
-## Single Platform Publishing
+## Frontmatter 格式
 
+| 字段 | 必填 | 说明 |
+|------|------|------|
+| `title` | 否* | 文章标题（默认使用第一个 H1 或文件名） |
+| `cover_image` | 否 | 封面图路径（本地或远程 URL） |
+| `tags` | 否 | 逗号分隔的标签 |
+| `author` | 否 | 作者名称 |
+| `summary` | 否 | 文章摘要/描述 |
+
+*建议在 frontmatter 中提供标题，确保跨平台一致性
+
+## 命令选项
+
+| 选项 | 说明 |
+|------|------|
+| `--submit` | 直接发布（默认：保存草稿） |
+| `--profile <path>` | 自定义 Chrome 配置目录 |
+| `--wechat-theme <name>` | 公众号主题 (default, grace, simple) |
+
+## 工作流程
+
+1. **解析 Markdown**：提取标题、摘要、封面图和正文图片
+2. **启动浏览器**：使用 Chrome 并保存登录状态
+3. **发布到百家号**：
+   - 输入文章标题
+   - 插入文章内容
+   - 上传图片
+   - 保存为草稿
+4. **发布到公众号**：
+   - 转换文章为微信格式
+   - 输入标题、作者、摘要
+   - 插入文章内容和图片
+   - 保存为草稿
+5. **清理浏览器**：关闭浏览器，保存登录状态
+
+## 平台限制
+
+### 百家号
+
+- **登录地址**: https://baijiahao.baidu.com/builder/rc/home
+- **图片限制**: JPG/PNG，单张图片 ≤ 2MB
+
+### 微信公众号
+
+- **登录地址**: https://mp.weixin.qq.com/
+- **标题限制**: 最多 64 个字符
+- **主题**: default, grace, simple
+
+## 故障排查
+
+### "未登录" 错误
+
+确保您已在浏览器中登录相应平台。此工具使用 Chrome 的用户数据目录来保留登录会话。
+
+### 图片上传失败
+
+1. 检查图片格式是否支持（JPG、PNG、GIF、WebP）
+2. 确保图片文件未损坏
+3. 检查图片大小是否超过限制
+
+### 浏览器未找到
+
+设置环境变量：
 ```bash
-# Baijiahao
-npx -y bun ${SKILL_DIR}/scripts/publishers/publish-baijiahao.ts article.md --submit
-
-# Toutiao
-npx -y bun ${SKILL_DIR}/scripts/publishers/publish-toutiao.ts article.md --submit
-
-# Netease
-npx -y bun ${SKILL_DIR}/scripts/publishers/publish-netease.ts article.md --submit
+export MULTI_PLATFORM_CHROME_PATH="/path/to/chrome"
 ```
 
-## Frontmatter Format
+## 配置环境变量
 
-| Field | Required | Description |
-|-------|----------|-------------|
-| `title` | No* | Article title (defaults to first H1 or filename) |
-| `cover_image` | No | Path to cover image (local or remote URL) |
-| `tags` | No | Comma-separated tags |
-| `author` | No | Author name |
-| `summary` | No | Article summary/description |
-
-*While `title` is not strictly required, it's highly recommended to provide it in frontmatter for consistency across platforms.
-
-## Options
-
-| Option | Description |
-|--------|-------------|
-| `--submit` | Submit for publication (default: preview/draft mode) |
-| `--platforms <list>` | Comma-separated platform list (for publish-all) |
-| `--profile <path>` | Custom Chrome profile directory |
-
-## How It Works
-
-1. **Markdown Parsing**: Extracts title, summary, cover image, and content images
-2. **Browser Automation**: Launches Chrome with saved login session
-3. **Content Insertion**:
-   - Types article title
-   - Inserts article content
-   - Uploads images via clipboard
-4. **Submission**: Either creates draft or submits for publication
-
-## Platform-Specific Notes
-
-### 百家号 (Baijiahao)
-
-- **Login**: https://baijiahao.baidu.com/builder/rc/home
-- **Image limits**: JPG/PNG, single image ≤ 2MB
-- **Cover image**: Supported via dedicated upload area
-
-### 头条号 (Toutiao)
-
-- **Login**: https://mp.toutiao.com/profile_v4/index
-- **Image limits**: JPG/PNG, recommended 16:9 aspect ratio
-- **Note**: Page may take longer to load
-
-### 网易号 (Netease)
-
-- **Login**: http://mp.163.com/subscribe_v4/index.html#/home
-- **Image limits**: JPG/PNG, single image ≤ 2MB
-- **Note**: Uses hash-based routing
-
-## Troubleshooting
-
-### "Not logged in" Error
-
-Make sure you've logged into the platform in a regular browser session first. The skill uses Chrome's user data directory to preserve login sessions.
-
-### Images Not Uploading
-
-1. Check that images are in supported formats (JPG, PNG, GIF, WebP)
-2. Ensure image files are not corrupted
-3. Check platform-specific image size limits
-
-### Browser Not Found
-
-Set the `MULTI_PLATFORM_BROWSER_CHROME_PATH` environment variable to your Chrome executable path.
-
-### Clipboard Issues
-
-The skill uses system clipboard for image uploading. Make sure:
-- No other applications are interfering with clipboard
-- You have granted necessary permissions
-
-## Image Handling
-
-- **Local images**: Resolved relative to Markdown file location
-- **Remote images**: Automatically downloaded to temp directory
-- **Image placeholders**: Images are inserted via clipboard during publishing
-
-## Configuration
-
-You can set the following environment variables:
-
-| Variable | Description |
-|----------|-------------|
-| `MULTI_PLATFORM_BROWSER_CHROME_PATH` | Path to Chrome executable |
-| `MULTI_PLATFORM_PROFILE_DIR` | Custom profile directory |
-
-## Error Handling
-
-- Single platform failure doesn't stop other platforms (when using publish-all)
-- Detailed error messages for debugging
-- Retry mechanism for transient failures
+| 变量 | 说明 |
+|------|------|
+| `MULTI_PLATFORM_CHROME_PATH` | Chrome 可执行文件路径 |
+| `MULTI_PLATFORM_PROFILE_DIR` | 自定义配置文件目录 |

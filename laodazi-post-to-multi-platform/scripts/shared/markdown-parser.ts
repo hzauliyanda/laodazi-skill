@@ -181,11 +181,18 @@ export async function parseMarkdownForMultiPlatform(
 
   const { frontmatter, body } = parseFrontmatter(content);
 
-  // Extract title: frontmatter > H1 > filename
+  // Extract title: frontmatter > H1 (but skip generic titles) > filename
   let title = options?.title ?? frontmatter.title ?? '';
   if (!title) {
     const h1Match = body.match(/^#\s+(.+)$/m);
-    if (h1Match) title = h1Match[1]!;
+    if (h1Match) {
+      const h1Title = h1Match[1]!;
+      // Skip generic titles and use filename instead
+      const genericTitles = ['前言', '引言', '序言', '序', 'Preface', 'Introduction', '引子'];
+      if (!genericTitles.includes(h1Title.trim())) {
+        title = h1Title;
+      }
+    }
   }
   if (!title) {
     title = path.basename(markdownPath, path.extname(markdownPath));
@@ -276,8 +283,26 @@ export async function parseMarkdownForMultiPlatform(
   // Keep placeholders as-is for later replacement (don't replace with plain numbers)
   const formattedContent = styledContent;
 
+  // Wrap in complete HTML document structure for better copy-paste support
+  const fullHtml = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Article</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; margin: 20px; line-height: 1.8; }
+  </style>
+</head>
+<body>
+<div id="output">
+${formattedContent}
+</div>
+</body>
+</html>`;
+
   const tempHtmlPath = path.join(tempDir, 'temp-article.html');
-  await writeFile(tempHtmlPath, formattedContent, 'utf-8');
+  await writeFile(tempHtmlPath, fullHtml, 'utf-8');
 
   // Resolve all images
   const contentImages: ImageInfo[] = [];

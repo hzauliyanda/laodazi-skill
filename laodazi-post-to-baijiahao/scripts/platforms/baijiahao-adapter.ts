@@ -110,6 +110,14 @@ export class BaijiahaoAdapter extends BasePlatformAdapter {
         };
       }
 
+      // First, ensure we're on the home page (not already on an edit page)
+      const currentUrl = await evaluate<string>(this.session, 'window.location.href');
+      if (currentUrl.includes('/edit') || currentUrl.includes('type=news')) {
+        console.log('[baijiahao] Already on edit page, navigating to home first...');
+        await evaluate(this.session, `window.location.href = 'https://baijiahao.baidu.com/builder/rc/home'`);
+        await sleep(5000);
+      }
+
       // Navigate to create article page
       console.log('[baijiahao] Navigating to create article page...');
 
@@ -118,8 +126,55 @@ export class BaijiahaoAdapter extends BasePlatformAdapter {
       const hasPublishBtn = await evaluate<boolean>(this.session, `!!document.querySelector('${publishBtnSelector}')`);
 
       if (hasPublishBtn) {
-        console.log('[baijiahao] Clicking publish button...');
-        await this.clickWithRetry(publishBtnSelector);
+        console.log('[baijiahao] Clicking publish button and selecting article type...');
+        // Use JavaScript to properly click and navigate
+        const clicked = await evaluate<boolean>(
+          this.session,
+          `
+            (function() {
+              try {
+                // First try to find the "图文" (article) menu item
+                const articleItem = document.querySelector('[data-menu="article"]') ||
+                                   document.querySelector('.menu-item[data-type="article"]') ||
+                                   Array.from(document.querySelectorAll('.menu-item')).find(el => el.textContent?.includes('图文'));
+
+                if (articleItem) {
+                  // Click directly on the article menu item
+                  articleItem.click();
+                  console.log('[debug] Clicked article menu item directly');
+                  return true;
+                }
+
+                // Fallback: click publish button then article item
+                const publishBtn = document.querySelector('#home-publish-btn');
+                if (publishBtn) {
+                  publishBtn.click();
+                  // Wait for menu to appear and click article
+                  setTimeout(() => {
+                    const items = document.querySelectorAll('.menu-item, [class*="menu"]');
+                    for (const item of items) {
+                      if (item.textContent?.includes('图文')) {
+                        item.click();
+                        console.log('[debug] Clicked图文 from dropdown');
+                        return;
+                      }
+                    }
+                  }, 500);
+                  return true;
+                }
+                return false;
+              } catch (e) {
+                console.log('[debug] Error:', e.message);
+                return false;
+              }
+            })()
+          `
+        );
+
+        if (!clicked) {
+          console.log('[baijiahao] JavaScript click failed, navigating directly...');
+          await evaluate(this.session, `window.location.href = 'https://baijiahao.baidu.com/builder/rc/edit?type=news&is_from_cms=1'`);
+        }
         await sleep(5000);
       } else {
         // Try navigating directly to the edit page

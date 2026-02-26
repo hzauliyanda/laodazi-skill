@@ -132,8 +132,20 @@ export abstract class BasePlatformAdapter {
     const fs = require('node:fs');
     const htmlContent = fs.readFileSync(markdown.htmlPath, 'utf-8');
 
+    // Extract content from #output div if it exists
+    const outputStart = htmlContent.indexOf('<div id="output">');
+    const outputEnd = htmlContent.lastIndexOf('</div>');
+    let content = htmlContent;
+
+    if (outputStart !== -1 && outputEnd !== -1 && outputEnd > outputStart) {
+      // Extract content between <div id="output"> and the last closing </div> before </body>
+      const bodyEnd = htmlContent.indexOf('</body>');
+      const actualEnd = bodyEnd !== -1 && bodyEnd < outputEnd ? bodyEnd : outputEnd;
+      content = htmlContent.substring(outputStart + '<div id="output">'.length, actualEnd);
+    }
+
     // Remove HTML tags and get plain text
-    return htmlContent
+    return content
       .replace(/<[^>]+>/g, '')
       .replace(/&nbsp;/g, ' ')
       .replace(/&amp;/g, '&')
