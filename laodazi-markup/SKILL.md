@@ -2,6 +2,17 @@
 
 智能分析markdown文章内容，自动为重点段落添加颜色标注和加粗，标注比例约5-8%。
 
+## ⚠️ 执行方式（必须遵守）
+
+**必须运行脚本，不要用 Read/Write 工具自己处理！**
+
+```bash
+cd /Users/liyanda/.claude/skills/laodazi-markup
+bun run scripts/markup.ts <文件路径>
+```
+
+**原因**：脚本使用 `Buffer + TextDecoder` 确保 UTF-8 编码正确处理中文内容和中文符号（如引号 `""`）。
+
 ## 核心功能
 
 - 🎯 智能识别文章重点段落
