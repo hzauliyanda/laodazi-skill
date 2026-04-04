@@ -376,7 +376,8 @@ export class BaijiahaoAdapter extends BasePlatformAdapter {
 
           await setFileInput(this.session, fileId, [localPath]);
           console.log(`[baijiahao]   - File set: ${localPath}`);
-          await sleep(2000);
+          console.log(`[baijiahao]   - Waiting 10s for image to upload before clicking confirm...`);
+          await sleep(10000);
 
           // Click confirm button in the image upload modal
           // Look for the confirm button with class cheetah-btn-primary in the modal
@@ -430,8 +431,8 @@ export class BaijiahaoAdapter extends BasePlatformAdapter {
           );
 
           if (confirmed) {
-            console.log(`[baijiahao]   - Confirmed`);
-            await sleep(1500);
+            console.log(`[baijiahao]   - Confirmed, waiting 3s for modal to close...`);
+            await sleep(3000);
           } else {
             console.log(`[baijiahao]   - No confirm button found`);
           }
