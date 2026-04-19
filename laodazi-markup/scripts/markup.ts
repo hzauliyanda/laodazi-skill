@@ -36,6 +36,21 @@ function validateChineseContent(content: string): boolean {
   return hasChinese;
 }
 
+/**
+ * 标准化中文引号（仅针对纯文本内容，不影响HTML/CSS）
+ * 只在生成标注时调用，确保文本中的引号使用中文全角引号
+ */
+function normalizeQuotes(text: string): string {
+  // 只转换文本内容中的引号，不影响HTML标签
+  let result = text;
+
+  // 英文半角引号 → 中文全角引号（排除HTML标签中的引号）
+  // 使用负向后顾和负向前瞻确保不会替换HTML属性中的引号
+  result = result.replace(/(?<!<[^=]*)"(?![^<>]*>)/g, '"');
+
+  return result;
+}
+
 interface MarkupConfig {
   rule?: 'basic' | 'comprehensive' | 'conservative';
   preview?: boolean;
@@ -260,7 +275,7 @@ async function markupMarkdownFile(filePath: string, config: MarkupConfig): Promi
 
   console.log('\n字符统计:');
   console.log('  - 中文字符:', chineseChars);
-  console.log('  - 中文引号 (“”):', chineseQuotes);
+  console.log('  - 中文引号 (" "):', chineseQuotes);
   console.log('  - 英文引号 ("):', englishQuotes);
   console.log('  - 中文问号 (？):', chineseQuestion);
   console.log('  - 中文逗/句号 (，。):', chineseComma);
@@ -268,6 +283,22 @@ async function markupMarkdownFile(filePath: string, config: MarkupConfig): Promi
   // 显示前200个字符示例
   console.log('\n前200个字符预览:');
   console.log(content.substring(0, Math.min(200, content.length)));
+
+  // 显示完整文章内容
+  console.log('\n========== 完整文章内容 ==========');
+  console.log(content);
+  console.log('========== 文章内容结束 ==========\n');
+
+  // DEBUG模式：暂停等待用户确认
+  if (process.env.DEBUG === 'true') {
+    console.log('⏸️  DEBUG模式：已读取文章内容，暂停中...');
+    console.log('按回车键继续执行标注...');
+    // 简单的暂停机制
+    await new Promise(resolve => {
+      process.stdin.once('data', resolve);
+    });
+  }
+
   console.log('========== DEBUG: 信息结束 ==========\n');
 
   const lines = content.split('\n');
@@ -285,6 +316,11 @@ async function markupMarkdownFile(filePath: string, config: MarkupConfig): Promi
     }
     if (inCodeBlock) {
       result.push(line);
+      continue;
+    }
+
+    // 跳过单独的 > 行（引用块后的空引用行）
+    if (line.trim() === '>') {
       continue;
     }
 

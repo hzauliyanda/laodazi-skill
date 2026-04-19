@@ -1,6 +1,7 @@
 ---
 name: laodazi-post-to-multi-platform
-description: Post article to both Baijiahao (百家号) and WeChat Official Account (微信公众号) in one browser session. Saves as draft on both platforms.
+description: Post article to both Baijiahao (百家号) and WeChat Official Account (微信公众号). Baijiahao via browser, WeChat via API.
+version: 2.0
 ---
 
 # Multi-Platform Article Publisher
@@ -9,11 +10,11 @@ description: Post article to both Baijiahao (百家号) and WeChat Official Acco
 
 ## 核心功能
 
-- 📝 **一次解析**：自动提取标题、摘要、封面图、正文和图片
-- 🔄 **同一浏览器**：在同一个浏览器会话中完成两个平台的发布
-- 📋 **自动保存草稿**：百家号和公众号都会保存为草稿，可随时编辑
-- 🖼️ **智能图片处理**：自动下载远程图片并上传到各平台
-- 🚀 **顺序发布**：先发布百家号，再发布公众号
+- **百家号**：浏览器自动化发布（Chrome CDP）
+- **微信公众号**：官方 API 创建草稿，无需浏览器
+- **一次解析**：自动提取标题、摘要、封面图、正文和图片
+- **智能图片处理**：自动下载远程图片并上传到各平台
+- **顺序发布**：先发布百家号，再发布公众号
 
 ## 快速开始
 
@@ -38,13 +39,12 @@ summary: 揭秘历史上真实的赵匡胤
 更多内容...
 ```
 
-### 2. 登录平台（首次使用）
+### 2. 登录百家号（首次使用）
 
-首次运行时会自动打开浏览器，请先登录：
+首次运行时会自动打开浏览器，请先登录百家号：
 - **百家号**: https://baijiahao.baidu.com/builder/rc/home
-- **公众号**: https://mp.weixin.qq.com/
 
-登录信息会自动保存，后续无需重复登录。
+公众号无需浏览器，通过 API 直接发布。
 
 ### 3. 发布文章
 
@@ -52,8 +52,8 @@ summary: 揭秘历史上真实的赵匡胤
 # 保存为草稿到两个平台
 /laodazi-post-to-multi-platform article.md
 
-# 直接发布
-/laodazi-post-to-multi-platform article.md --submit
+# 带封面图
+/laodazi-post-to-multi-platform article.md --cover ./cover.png
 ```
 
 ## Frontmatter 格式
@@ -73,60 +73,44 @@ summary: 揭秘历史上真实的赵匡胤
 | 选项 | 说明 |
 |------|------|
 | `--submit` | 直接发布（默认：保存草稿） |
-| `--profile <path>` | 自定义 Chrome 配置目录 |
-| `--wechat-theme <name>` | 公众号主题 (default, grace, simple) |
+| `--profile <path>` | 自定义 Chrome 配置目录（百家号） |
+| `--cover <path>` | 封面图（公众号） |
 
 ## 工作流程
 
 1. **解析 Markdown**：提取标题、摘要、封面图和正文图片
-2. **启动浏览器**：使用 Chrome 并保存登录状态
-3. **发布到百家号**：
-   - 输入文章标题
-   - 插入文章内容
-   - 上传图片
+2. **发布到百家号**（浏览器自动化）：
+   - 启动 Chrome，登录百家号
+   - 输入文章标题、内容、上传图片
    - 保存为草稿
-4. **发布到公众号**：
-   - 转换文章为微信格式
-   - 输入标题、作者、摘要
-   - 插入文章内容和图片
-   - 保存为草稿
-5. **清理浏览器**：关闭浏览器，保存登录状态
-
-## 平台限制
-
-### 百家号
-
-- **登录地址**: https://baijiahao.baidu.com/builder/rc/home
-- **图片限制**: JPG/PNG，单张图片 ≤ 2MB
-
-### 微信公众号
-
-- **登录地址**: https://mp.weixin.qq.com/
-- **标题限制**: 最多 64 个字符
-- **主题**: default, grace, simple
-
-## 故障排查
-
-### "未登录" 错误
-
-确保您已在浏览器中登录相应平台。此工具使用 Chrome 的用户数据目录来保留登录会话。
-
-### 图片上传失败
-
-1. 检查图片格式是否支持（JPG、PNG、GIF、WebP）
-2. 确保图片文件未损坏
-3. 检查图片大小是否超过限制
-
-### 浏览器未找到
-
-设置环境变量：
-```bash
-export MULTI_PLATFORM_CHROME_PATH="/path/to/chrome"
-```
+   - 关闭浏览器
+3. **发布到公众号**（API）：
+   - 调用 `wechat-draft-api.ts` 通过官方 API 创建草稿
+   - 自动上传封面图和内联图片
+   - 零浏览器依赖
 
 ## 配置环境变量
 
 | 变量 | 说明 |
 |------|------|
-| `MULTI_PLATFORM_CHROME_PATH` | Chrome 可执行文件路径 |
-| `MULTI_PLATFORM_PROFILE_DIR` | 自定义配置文件目录 |
+| `WECHAT_APPID` | 微信公众号 AppID（必填） |
+| `WECHAT_APPSECRET` | 微信公众号 AppSecret（必填） |
+| `MULTI_PLATFORM_CHROME_PATH` | Chrome 可执行文件路径（百家号） |
+| `MULTI_PLATFORM_PROFILE_DIR` | 自定义 Chrome 配置文件目录 |
+
+## 故障排查
+
+### 百家号未登录
+
+首次运行会打开浏览器，手动扫码登录即可，后续会保持登录状态。
+
+### 公众号 API 错误
+
+1. 检查 `WECHAT_APPID` 和 `WECHAT_APPSECRET` 是否正确
+2. 检查公众号后台 > 设置与开发 > 基本配置 > IP白名单 是否已添加当前机器 IP
+3. 标题不超过 64 个字符
+
+### 图片上传失败
+
+1. 检查图片格式是否支持（JPG、PNG、GIF、WebP）
+2. 内联图片 < 2MB，封面图 < 10MB
