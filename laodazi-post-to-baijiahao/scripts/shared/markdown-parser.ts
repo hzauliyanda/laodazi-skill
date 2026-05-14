@@ -3,8 +3,7 @@ import path from 'node:path';
 import { mkdir, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import { createHash } from 'node:crypto';
-import https from 'node:https';
-import http from 'node:http';
+import { spawnSync } from 'node:child_process';
 import type { Frontmatter, ImageInfo, ParsedMarkdown } from './types.js';
 
 /**
@@ -58,47 +57,77 @@ function convertMarkdownToStyledHtml(markdown: string): string {
   return html;
 }
 
+// GitHub raw URL mirrors for retry
+const GITHUB_RAW_MIRRORS = [
+  'https://ghfast.top',
+  'https://ghproxy.com',
+  'https://gh-proxy.com',
+];
+
+function isGithubRawUrl(url: string): boolean {
+  return url.includes('raw.githubusercontent.com');
+}
+
+function buildMirrorUrl(mirror: string, originalUrl: string): string {
+  return `${mirror}/${originalUrl}`;
+}
+
 function downloadFile(url: string, destPath: string): Promise<void> {
   return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https') ? https : http;
-    const file = fs.createWriteStream(destPath);
-
-    const request = protocol.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } }, (response) => {
-      if (response.statusCode === 301 || response.statusCode === 302) {
-        const redirectUrl = response.headers.location;
-        if (redirectUrl) {
-          file.close();
-          fs.unlinkSync(destPath);
-          downloadFile(redirectUrl, destPath).then(resolve).catch(reject);
-          return;
-        }
-      }
-
-      if (response.statusCode !== 200) {
-        file.close();
-        fs.unlinkSync(destPath);
-        reject(new Error(`Failed to download: ${response.statusCode}`));
-        return;
-      }
-
-      response.pipe(file);
-      file.on('finish', () => {
-        file.close();
-        resolve();
-      });
+    const script = `
+import urllib.request, shutil, sys
+url, dest = sys.argv[1], sys.argv[2]
+try:
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req, timeout=25) as resp:
+        with open(dest, 'wb') as f:
+            shutil.copyfileobj(resp, f)
+except Exception as e:
+    sys.exit(str(e))
+`;
+    const result = spawnSync('python3', ['-c', script, url, destPath], {
+      timeout: 30000,
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
 
-    request.on('error', (err) => {
-      file.close();
-      fs.unlink(destPath, () => {});
-      reject(err);
-    });
-
-    request.setTimeout(30000, () => {
-      request.destroy();
-      reject(new Error('Download timeout'));
-    });
+    if (result.status === 0 && fs.existsSync(destPath)) {
+      resolve();
+    } else {
+      const stderr = result.stderr?.toString().trim() || 'Unknown error';
+      if (fs.existsSync(destPath)) fs.unlinkSync(destPath);
+      reject(new Error(`Download failed: ${stderr}`));
+    }
   });
+}
+
+async function downloadFileWithMirrors(url: string, destPath: string): Promise<void> {
+  // Try original URL first
+  try {
+    await downloadFile(url, destPath);
+    return;
+  } catch (originalError) {
+    // If not a GitHub raw URL, fail immediately
+    if (!isGithubRawUrl(url)) {
+      throw originalError;
+    }
+    const errMsg = originalError instanceof Error ? originalError.message : String(originalError);
+    console.error(`[markdown-parser] Original URL failed: ${errMsg}`);
+  }
+
+  // Try mirrors one by one
+  for (const mirror of GITHUB_RAW_MIRRORS) {
+    const mirrorUrl = buildMirrorUrl(mirror, url);
+    console.error(`[markdown-parser] Trying mirror: ${mirror}`);
+    try {
+      await downloadFile(mirrorUrl, destPath);
+      return;
+    } catch (mirrorError) {
+      const errMsg = mirrorError instanceof Error ? mirrorError.message : String(mirrorError);
+      console.error(`[markdown-parser] Mirror ${mirror} failed: ${errMsg}`);
+    }
+  }
+
+  throw new Error(`All download attempts failed for: ${url}`);
 }
 
 function getImageExtension(urlOrPath: string): string {
@@ -114,7 +143,7 @@ async function resolveImagePath(imagePath: string, baseDir: string, tempDir: str
 
     if (!fs.existsSync(localPath)) {
       console.error(`[markdown-parser] Downloading: ${imagePath}`);
-      await downloadFile(imagePath, localPath);
+      await downloadFileWithMirrors(imagePath, localPath);
     }
     return localPath;
   }
@@ -181,14 +210,14 @@ export async function parseMarkdownForMultiPlatform(
 
   const { frontmatter, body } = parseFrontmatter(content);
 
-  // Extract title: frontmatter > H1 > filename
+  // Extract title: frontmatter > filename > H1
   let title = options?.title ?? frontmatter.title ?? '';
+  if (!title) {
+    title = path.basename(markdownPath, path.extname(markdownPath));
+  }
   if (!title) {
     const h1Match = body.match(/^#\s+(.+)$/m);
     if (h1Match) title = h1Match[1]!;
-  }
-  if (!title) {
-    title = path.basename(markdownPath, path.extname(markdownPath));
   }
 
   const author = frontmatter.author ?? '';
@@ -229,7 +258,7 @@ export async function parseMarkdownForMultiPlatform(
       const localPath = path.join(tempDir, `cover_${hash}.${ext}`);
       if (!fs.existsSync(localPath)) {
         console.error(`[markdown-parser] Downloading cover image: ${coverPath}`);
-        await downloadFile(coverPath, localPath);
+        await downloadFileWithMirrors(coverPath, localPath);
       }
       coverImage = localPath;
     } else if (path.isAbsolute(coverPath)) {

@@ -121,6 +121,22 @@ summary: 揭秘历史上真实的赵匡胤
 | `BAIJIAHAO_BROWSER_CHROME_PATH` | Chrome 可执行文件路径 |
 | `BAIJIAHAO_PROFILE_DIR` | 自定义配置文件目录 |
 
+### 环境变量设置方法
+
+如果环境变量已配置在 `~/.zshrc` 中，运行脚本前需要先加载：
+
+```bash
+# 方法1：使用 zsh -c 加载
+zsh -c 'source ~/.zshrc && /laodazi-post-to-baijiahao article.md'
+
+# 方法2：在 bash 命令中先手动 export
+export BAIJIAHAO_BROWSER_CHROME_PATH="/path/to/chrome"
+export BAIJIAHAO_PROFILE_DIR="/path/to/profile"
+/laodazi-post-to-baijiahao article.md
+```
+
+**⚠️ 重要提示**: Bash 工具默认不会加载 `~/.zshrc`，如果环境变量配置在 zshrc 中，必须使用上述方法之一。
+
 ## 错误处理
 
 - 详细的错误消息用于调试
